@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iPhone 投屏与 TCHESS 本地象棋助手需求文档 v1.1</title>
+<style>
+:root{color-scheme:light;--ink:#243142;--accent:#236657}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f3f5f4;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",sans-serif;font-size:16px;line-height:1.9}
+main{max-width:960px;margin:40px auto;padding:48px 64px;background:#fff;border:1px solid #e0e6e3;border-radius:16px}
+header{border-bottom:3px solid var(--accent);padding-bottom:24px;margin-bottom:24px}
+.label{color:var(--accent);font-size:13px;letter-spacing:2px}h1{font-size:30px;line-height:1.5;margin:12px 0 0}h2{font-size:22px;line-height:1.5;margin:40px 0 16px;padding-top:10px;border-top:1px solid #e5eae7;scroll-margin-top:20px}
+h3{font-size:17px;margin:24px 0 8px}
+p{margin:14px 0}a{color:#1a665b;text-underline-offset:3px;overflow-wrap:anywhere}nav{display:flex;flex-wrap:wrap;gap:8px 20px;padding:18px 22px;background:#f0f6f3;border-radius:8px;font-size:14px}
+ul,ol{padding-left:26px}li{padding-left:4px;margin:8px 0}strong{color:#152e29}footer{margin-top:40px;padding-top:18px;border-top:1px solid #e5eae7;font-size:13px;color:#66746d}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}th,td{border:1px solid #dde4e1;padding:8px 10px;text-align:left;vertical-align:top}th{background:#f0f6f3}
+.new{display:inline-block;font-size:12px;color:#fff;background:var(--accent);border-radius:4px;padding:0 6px;margin-left:6px;vertical-align:middle;line-height:1.7}
+.tablewrap{overflow-x:auto}
+@media(max-width:640px){main{margin:0;padding:26px 16px;border:0;border-radius:0}h1{font-size:25px}h2{font-size:20px}}
+@media print{body{background:white;font-size:11pt}main{max-width:none;margin:0;padding:0;border:0}nav{display:none}h2{break-after:avoid}li,p{orphans:3;widows:3}a{color:inherit}header{border-bottom-width:1px}.new{color:inherit;background:none;border:1px solid}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="label">本地部署 · 需求文档</div><h1>iPhone 投屏与 TCHESS 本地象棋助手需求文档</h1></header>
+<nav aria-label="文档目录"><a href="#section-0">修订记录</a>
+<a href="#section-1">项目目标与范围</a>
+<a href="#section-2">软件选择与已知能力</a>
+<a href="#section-3">设备与部署要求</a>
+<a href="#section-4">使用流程</a>
+<a href="#section-5">功能要求</a>
+<a href="#section-6">建议验收标准</a>
+<a href="#section-7">实施步骤与交付物</a>
+<a href="#section-8">待确认事项</a></nav>
+<article><p>版本：1.2　日期：2026年10月15日</p>
+<p>采用现成开源软件搭建本地象棋分析工具：iPhone 将棋盘画面投屏到 Windows 电脑，TCHESS 识别投屏窗口中的局面，皮卡鱼使用本机 CPU 计算，在电脑上显示建议走法。用户在手机上自行落子，不需要每一步手动截图。</p>
+<p>本版采用电脑查看提示的使用方式，优先完成软件安装、配置与兼容性验证。此前独立开发 iOS App 的路线暂缓；本次不包含云服务器配置或万相视频项目。</p>
+
+<h2 id="section-0">修订记录</h2>
+<p><strong>v1.2</strong>：用户确认设备与方案约束 —— iPhone 16 Pro Max（USB-C），iOS 26.6，竖屏；电脑为笔记本本机；不购买采集卡等硬件；投屏工具必须免费，优先 GitHub 开源项目（首选候选 UxPlay）；优先无线；网络未开 AP 隔离。待确认事项相应更新。</p>
+<p><strong>v1.1 相对 v1.0 的主要变化</strong>（新增内容在正文中以“新增”标记）：</p>
+<ul>
+<li>明确使用场景：个人练习，手机自行落子，电脑显示提示。</li>
+<li>补充棋规设置、对局历史缺失、“稳定局面”定义、端到端延迟预算、提示查看方式与记法视角。</li>
+<li>补充 iPhone 端准备、投屏方案对比（含 HDMI 采集卡备选）、网络排查、Windows 缩放与后台采集限制。</li>
+<li>补充引擎版本选择与参数起点、笔记本电源与散热、运行环境、杀毒软件、许可证与配置备份。</li>
+<li>验收增加录屏留证与测试样本矩阵；待确认事项扩充。</li>
+</ul>
+
+<h2 id="section-1">项目目标与范围</h2>
+<p>第一版需要完成连续投屏、棋盘识别、本地引擎分析和电脑端提示，并使用户能够自行启动、停止和恢复整个流程。</p>
+<ul>
+<li><strong>使用场景</strong><span class="new">新增</span>：个人练习使用。用户在 iPhone 上自行落子，电脑显示引擎建议；工具不操作手机。</li>
+<li>使用 TCHESS 的现成发行包，优先通过设置解决问题。</li>
+<li>引擎使用本地皮卡鱼，不接入语言模型，不做中文棋理讲解。</li>
+<li>提示可以包含箭头、起点终点和“炮二平五”等走法记号。</li>
+<li>使用观战分析模式，不配置自动落子或自动续盘。</li>
+<li>不开发苹果安装包，不处理自研 App 签名；所选投屏工具如需手机端应用，按该工具自身安装要求处理。</li>
+<li>第一版仅覆盖本地使用，不建设账户系统、公网接口或远程访问服务。</li>
+<li><strong>已知方案限制</strong><span class="new">新增</span>：建议显示在 TCHESS 自己的棋盘上，不叠加到投屏画面；用户需对照两个窗口。中途连线时 TCHESS 只获得当前局面，没有此前着法历史，重复局面、长将长捉的判断可能不准确。</li>
+</ul>
+
+<h2 id="section-2">软件选择与已知能力</h2>
+<p><a href="https://github.com/sojourners/public-Xiangqi">TCHESS 项目</a>提供引擎加载、棋局分析和连线功能。<a href="https://github.com/sojourners/public-Xiangqi/blob/master/MANUAL.md">使用手册</a>说明观战模式只分析局面，并支持棋步箭头、CPU 线程和思考时间设置。优先从<a href="https://github.com/sojourners/public-Xiangqi/releases">项目 Releases</a>选择适合 Windows 的现成版本；具体包及运行依赖在安装时核对。</p>
+<p><strong>TCHESS 已知信息</strong><span class="new">新增</span>：</p>
+<ul>
+<li>基于 Java（JDK 21）与 JavaFX 23 开发，许可证 GPL-3.0，作者声明未经授权禁止商业用途。安装时核对发行包是否自带运行环境，不自带则将对应 JRE 一并放入固定目录。</li>
+<li>连线分前台和后台模式：前台要求目标窗口不被遮挡；后台模式并非所有平台都支持。</li>
+<li>可调设置包括识别扫描间隔（毫秒）、识别线程数和动画确认。棋子有移动过渡动画时需开启动画确认，否则可能识别错误。</li>
+<li>手册未说明识别原理（模板匹配或模型、是否需要框选棋盘）。项目开源，正式测试前阅读相关源码，以便判断识别失败原因和可能的改动范围。</li>
+</ul>
+<p><a href="https://github.com/official-pikafish/Pikafish">皮卡鱼 Pikafish</a>负责计算走法。安装时选择适合本机 CPU 的 Windows 版本及配套网络权重，并记录版本和文件路径。</p>
+<p><strong>棋规设置</strong><span class="new">新增</span>：皮卡鱼默认采用亚洲规则，需在引擎选项 Repetition Rule 中按 JJ象棋 实际规则设置（中国规则为 ChineseRule），保存后重载引擎。规则不一致时，引擎可能推荐在 JJ 中被判负的循环着法。</p>
+<p>投屏软件尚未选定，要求支持用户实际 iPhone 与 Windows 环境，能够连续呈现清晰棋盘。优先验证本地传输方案，并核对收费、时长限制、画面水印和是否需要额外手机端应用。</p>
+<p><strong>投屏候选方案</strong><span class="new">新增</span>：Windows 不自带 AirPlay 接收能力，需要第三方方案。</p>
+<div class="tablewrap"><table>
+<tr><th>类型</th><th>候选</th><th>优点</th><th>风险与核对点</th></tr>
+<tr><td>AirPlay 接收端</td><td>UxPlay（开源）、AirServer、LonelyScreen、5KPlayer</td><td>无线；手机端无需安装应用</td><td>依赖局域网发现；有一定延迟，偶有卡顿；核对收费、水印、时长</td></tr>
+<tr><td>第三方应用投屏</td><td>LetsView、ApowerMirror 等</td><td>部分支持有线</td><td>需手机端应用；常见水印、时长限制、登录要求</td></tr>
+<tr><td>HDMI + 采集卡</td><td>——</td><td>延迟最低，画面最稳定</td><td><strong>不采用</strong>：用户已确认不购买硬件。无采集卡时有线投屏到 Windows 实际不可行，本项目按无线方案执行</td></tr>
+</table></div>
+<p>方案优先级（用户已确认：必须免费，优先开源）：首选 <a href="https://github.com/FDH2/UxPlay">UxPlay</a>（开源 AirPlay 接收端，GPL，无水印无时长限制；Windows 下可能需要自行编译或寻找可靠的第三方打包，这是第一步实测内容）。UxPlay 走不通时，再从免费闭源接收端中按“无水印、无强制登录、时长可接受”筛选。无线识别不稳定时，在当前约束内通过调整分辨率、路由器连接方式（电脑有线接路由器）和扫描参数缓解，并如实记录达到的稳定程度。</p>
+<p>TCHESS 的屏幕识别能力不等于已经适配 iPhone 投屏中的 JJ象棋。该组合的画面采集、棋子识别及延迟，需要用实际设备验证；识别不通过时先调整显示设置，再评估是否需要局部改造。</p>
+
+<h2 id="section-3">设备与部署要求</h2>
+<p>电脑为现有 Windows <strong>笔记本</strong>（已确认），CPU 为 AMD Ryzen 9 7945HX，16 核 32 线程；安装时补充记录系统版本、可用内存及磁盘空间。软件和引擎文件保存在固定本地目录，避免移动后配置失效。</p>
+<p><strong>电脑设置</strong><span class="new">新增</span>：</p>
+<ul>
+<li>Windows 显示缩放固定（建议先用 100% 测试），记录缩放值；非 100% 缩放可能导致截图坐标偏移。多显示器时投屏窗口放在主显示器。</li>
+<li>笔记本使用期间接通电源，电源模式选高性能，合盖操作设为“不执行任何操作”，关闭自动睡眠；记录长时间运行后是否因发热降频。</li>
+<li>TCHESS 会截屏并具备模拟鼠标能力，可能被杀毒软件拦截，必要时将安装目录加入信任列表。</li>
+<li>记录所有下载文件的来源地址与 SHA256。</li>
+</ul>
+<p>iPhone 为 16 Pro Max（USB-C 接口），iOS 26.6，游戏竖屏使用（已确认）。无线投屏在同一局域网测试，电脑尽量有线连接同一路由器以减少无线干扰。</p>
+<p><strong>网络排查</strong>：用户已确认未开 AP 隔离。仍需核对：手机与电脑在同一网段（不在访客网络）；Windows 防火墙放行投屏接收程序；部分接收端依赖 Bonjour 服务。</p>
+<p><strong>iPhone 端准备</strong><span class="new">新增</span>：</p>
+<ul>
+<li>开启勿扰或专注模式，避免通知横幅和来电遮挡棋盘。</li>
+<li>自动锁定设为“永不”，防止熄屏中断投屏。</li>
+<li>JJ象棋 中关闭不必要的动态特效，固定横屏或竖屏。</li>
+<li>可选：使用“引导式访问”将手机锁定在 JJ象棋 内。</li>
+</ul>
+<p>使用期间电脑保持开机和唤醒。象棋识别与分析不依赖云端 GPU 或自建云服务器；关闭 TCHESS 中的云库查询，保留本地引擎分析。JJ象棋自身的联网需求不属于本工具的计算依赖。</p>
+
+<h2 id="section-4">使用流程</h2>
+<ol>
+<li>iPhone 开启勿扰模式，确认屏幕不会自动锁定。</li>
+<li>打开电脑上的投屏工具，将 iPhone 棋盘画面显示在电脑上。</li>
+<li>打开 TCHESS，确认本地皮卡鱼已正确加载，棋规设置正确。</li>
+<li>固定投屏窗口大小和位置，保持棋盘完整、清晰且不被遮挡。</li>
+<li>在 TCHESS 中选择观战模式并连线到目标棋盘，核对红黑方向、棋子位置及行棋方。</li>
+<li>用户在手机操作，电脑随画面变化更新局面和建议。</li>
+<li>发生识别错误、投屏冻结或弹窗遮挡时，暂停参考提示，恢复画面后重新识别。</li>
+<li>使用结束，停止连线并关闭分析与投屏程序。</li>
+</ol>
+
+<h2 id="section-5">功能要求</h2>
+<p><strong>连续画面输入</strong>：用户启动一次投屏后，应持续看到棋盘变化，无需每步截图或上传图片。投屏窗口尺寸变化后需要重新确认识别区域。优先测试前台采集；后台采集只有在当前投屏工具上验证通过后才启用。投屏窗口通常由显卡渲染，后台截图可能得到黑屏，因此后台模式列为可选项<span class="new">新增</span>。</p>
+<p><strong>局面识别</strong>：能够识别测试使用的 JJ象棋皮肤、红黑棋子和方向，并跟随吃子及移动更新。对动画过渡导致的误识别，尝试调整扫描间隔及动画确认设置。以人工对照实际棋盘确认识别正确为准，不能仅以“连线成功”判断。</p>
+<p><strong>稳定局面定义</strong><span class="new">新增</span>：走子动画结束、棋子回到格点、无弹窗遮挡时的画面视为稳定局面。以下情况需单独测试是否被误识别为局面变化：选中棋子的高亮、上一步标记、将军提示、悔棋、对局结算弹窗、头像与计时条贴近棋盘边缘。</p>
+<p><strong>引擎分析</strong>：能够加载本地引擎，设置线程、内存和思考时间，并稳定返回走法。先从保守资源设置开始，测试电脑响应与耗时后调整，不默认占满所有线程。初始参数建议<span class="new">新增</span>：7945HX 支持 AVX-512，优先选用皮卡鱼 avx512 或 vnni 版本；线程 8–12，Hash 256–512MB，思考时间固定 1–1.5 秒，再根据实测调整。</p>
+<p><strong>结果显示</strong>：在电脑的 TCHESS 界面显示当前局面及建议。建议必须与当前稳定局面一致；旧画面的建议不能视为当前提示。现成软件对冻结、断线和过期结果的处理需要验证，存在不足时在操作说明中明确暂停和恢复步骤。执黑时核对 TCHESS 棋盘方向与走法记号视角（如“炮二平五”与“炮8平5”），在操作说明中写明如何阅读<span class="new">新增</span>。</p>
+<p><strong>配置保留</strong>：保存引擎路径及相关参数，重启后可恢复使用。投屏及连线设置是否自动保存应实测；不能保存的步骤写入启动说明。实测 TCHESS 配置文件的存放位置并写入备份说明<span class="new">新增</span>。</p>
+
+<h2 id="section-6">建议验收标准</h2>
+<p>以下指标作为首轮试用验收目标，尚非已有性能结果。</p>
+<ul>
+<li>安装与引擎：软件正常启动，皮卡鱼能对至少 3 个已知局面返回合法走法；关闭云库后仍能分析；棋规选项已按 JJ象棋 规则设置。</li>
+<li>投屏：连续运行 20 分钟，手机落子在电脑可见，无需人工逐步截图。</li>
+<li>识别：至少检查 20 个稳定局面，包含红黑方向、吃子、开局和中残局；逐个核对全部棋子及行棋方。发现错误时不得记为通过。</li>
+<li>同步：连续观察至少 30 次局面变化，记录漏识别、错误局面和旧提示。建议以稳定画面出现后 3 秒内显示匹配建议为初始目标；未达到时记录实际耗时及原因，决定调参或调整目标。</li>
+<li>异常恢复：测试停止投屏、遮挡窗口、调整窗口大小及断开网络。恢复后能够重新连线，并人工确认当前局面正确。</li>
+<li>本地运行：不启动云服务器，完成投屏、识别和分析。程序不自动操作手机落子。</li>
+</ul>
+<p><strong>延迟预算</strong><span class="new">新增</span>：3 秒目标拆分记录，便于定位瓶颈。</p>
+<div class="tablewrap"><table>
+<tr><th>环节</th><th>初始预算</th><th>调节手段</th></tr>
+<tr><td>投屏传输（手机画面到电脑窗口）</td><td>≤ 0.5 秒</td><td>更换投屏方案、有线连接、采集卡</td></tr>
+<tr><td>识别（扫描间隔 + 动画确认）</td><td>≤ 1 秒</td><td>扫描间隔、识别线程、动画确认</td></tr>
+<tr><td>引擎思考</td><td>1–1.5 秒</td><td>思考时间、线程数</td></tr>
+</table></div>
+<p><strong>测试方法</strong><span class="new">新增</span>：使用 OBS 同时录制投屏窗口和 TCHESS 窗口，事后逐帧统计延迟、漏识别和旧提示，录像作为测试记录保留。测试样本按“棋盘皮肤 × 执红/执黑 × 开局/中局/残局 × 动画确认开/关”组合覆盖。</p>
+<p>记录投屏工具版本、TCHESS 版本、皮卡鱼版本、棋盘皮肤、窗口尺寸、Windows 缩放比例和引擎参数，使后续能够复现测试条件。</p>
+
+<h2 id="section-7">实施步骤与交付物</h2>
+<p>第一步，核对 iPhone 与电脑环境，选定投屏工具，先验证手机画面能连续到达电脑。第二步，安装 TCHESS 和皮卡鱼，单独验证引擎并设置棋规。第三步，阅读 TCHESS 识别相关源码，连线实际投屏棋盘，调整识别设置并完成验收。第四步，整理日常启动、停止、异常恢复和配置备份说明。每一步完成并确认后再进入下一步。</p>
+<p>交付物包括可运行的本地软件目录、记录的软件来源及版本与 SHA256、引擎与连线配置、简短中文操作说明和实际测试结果（含录像）。每一步讲清操作用途、文件位置及预期结果。</p>
+<p>若投屏无法稳定识别，先排查分辨率、皮肤、缩放和窗口采集，再尝试采集卡方案。现成配置不能满足要求时，列出具体缺口和最小改动范围，再决定改造；不将安装成功当作整套方案已经完成。</p>
+
+<h2 id="section-8">待确认事项</h2>
+<p><strong>已确认（2026-10-15）</strong>：iPhone 16 Pro Max，iOS 26.6；竖屏使用；电脑为笔记本本机；优先无线（有线可接受，但不购买硬件，故实际按无线执行）；投屏工具必须免费，优先 GitHub 开源项目；不购买采集卡，稳定性按实际达到的程度记录；网络未开 AP 隔离。</p>
+<p><strong>仍待确认</strong>：</p>
+<ul>
+<li>通常使用的 JJ象棋棋盘皮肤。</li>
+<li>JJ象棋 的循环判负规则与每步时限（不确定时引擎先按中国规则 ChineseRule 配置）。</li>
+<li>现成识别不通过时，是否允许修改 TCHESS 源码。</li>
+</ul>
+<p>本版验收按“手机下棋、电脑看提示”执行；以后如改为提示必须显示在 iPhone 上，需要另外评估手机端实现。</p></article>
+<footer>本文件可离线阅读。外部项目链接需要联网访问。</footer>
+</main>
+</body>
+</html>

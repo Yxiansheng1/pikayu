@@ -1,0 +1,18 @@
+# D:\pikayu 下还有 5KPlayer、TCHESS、Pikafish 等第三方软件和压缩包，一律不进仓库。
+# 采用白名单：只收 server/、docs/ 和根目录说明文件。
+/*
+!/server/
+!/docs/
+!/README.md
+!/LICENSE
+!/.gitignore
+
+# server 内的本地产物
+server/.venv/
+server/__pycache__/
+server/debug/
+server/requests.log
+server/diag.txt
+server/diag.bat
+server/diag_run.py
+server/fix.bat

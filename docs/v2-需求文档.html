@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>随时随地象棋助手 v2 需求文档</title>
+<style>
+:root{color-scheme:light;--ink:#243142;--accent:#236657}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f3f5f4;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",sans-serif;font-size:16px;line-height:1.9}
+main{max-width:960px;margin:40px auto;padding:48px 64px;background:#fff;border:1px solid #e0e6e3;border-radius:16px}
+header{border-bottom:3px solid var(--accent);padding-bottom:24px;margin-bottom:24px}
+.label{color:var(--accent);font-size:13px;letter-spacing:2px}h1{font-size:30px;line-height:1.5;margin:12px 0 0}h2{font-size:22px;line-height:1.5;margin:40px 0 16px;padding-top:10px;border-top:1px solid #e5eae7;scroll-margin-top:20px}
+h3{font-size:17px;margin:24px 0 8px}
+p{margin:14px 0}a{color:#1a665b;text-underline-offset:3px;overflow-wrap:anywhere}nav{display:flex;flex-wrap:wrap;gap:8px 20px;padding:18px 22px;background:#f0f6f3;border-radius:8px;font-size:14px}
+ul,ol{padding-left:26px}li{padding-left:4px;margin:8px 0}strong{color:#152e29}footer{margin-top:40px;padding-top:18px;border-top:1px solid #e5eae7;font-size:13px;color:#66746d}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}th,td{border:1px solid #dde4e1;padding:8px 10px;text-align:left;vertical-align:top}th{background:#f0f6f3}
+.risk{background:#fdf3f0;border-left:4px solid #c0604a;padding:10px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+.tablewrap{overflow-x:auto}
+code{background:#f0f4f2;padding:1px 6px;border-radius:4px;font-size:14px}
+@media(max-width:640px){main{margin:0;padding:26px 16px;border:0;border-radius:0}h1{font-size:25px}h2{font-size:20px}}
+@media print{body{background:white;font-size:11pt}main{max-width:none;margin:0;padding:0;border:0}nav{display:none}h2{break-after:avoid}li,p{orphans:3;widows:3}a{color:inherit}header{border-bottom-width:1px}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="label">个人项目 · v2 需求文档</div><h1>随时随地象棋助手（服务端 + iOS 悬浮提示）</h1></header>
+<nav aria-label="文档目录"><a href="#s1">背景与目标</a>
+<a href="#s2">总体架构</a>
+<a href="#s3">P1 服务端</a>
+<a href="#s4">P2 链路验证 App</a>
+<a href="#s5">P3 完整 App</a>
+<a href="#s6">已定技术决策</a>
+<a href="#s7">风险清单</a>
+<a href="#s8">与 v1 的关系</a></nav>
+<article>
+<p>版本：2.0　日期：2026年10月16日　仓库：<a href="https://github.com/Yxiansheng1/pikayu">Yxiansheng1/pikayu</a></p>
+
+<h2 id="s1">背景与目标</h2>
+<p>v1（投屏 + TCHESS + 皮卡鱼）已在家庭局域网内跑通：iPhone 投屏到 Windows 笔记本，电脑端识别局面并显示引擎建议。v1 的限制是必须和电脑同处一个局域网。</p>
+<p><strong>v2 目标：脱离电脑，在任何有网络的地方，手机上下 JJ象棋 时能看到皮卡鱼的走法提示。</strong>最终形态为 iOS App：通过屏幕采集实时读取对局画面，以画中画"悬浮窗"显示提示；过渡形态为快捷指令截图版。个人练习用途。</p>
+<p>分三期交付，每期独立可用、独立验收，后一期建立在前一期之上：</p>
+<ul>
+<li><strong>P1 服务端 + 快捷指令</strong>：纯 Python，先让"随时随地"以最低成本可用。</li>
+<li><strong>P2 链路验证 App</strong>：最小 iOS 壳，验证整条技术链路中唯一的高风险点。</li>
+<li><strong>P3 完整 App</strong>:画中画悬浮提示，目标体验。</li>
+</ul>
+
+<h2 id="s2">总体架构</h2>
+<p>大脑全部放在家里电脑的 Python 服务里，手机端始终只做两件事：把画面送出去、把提示显示出来。</p>
+<div class="tablewrap"><table>
+<tr><th>组件</th><th>位置</th><th>职责</th></tr>
+<tr><td>棋盘识别</td><td>家里电脑（Python）</td><td>从截图/视频帧中检测棋盘与棋子，输出 FEN。YOLO 类检测模型，参考 TCHESS 开源的 yolov11 思路，针对 JJ 皮肤自行标注微调</td></tr>
+<tr><td>引擎分析</td><td>家里电脑</td><td>皮卡鱼（复用 v1 已下载的 2026-09-06 通用版），UCI 子进程，固定思考时间</td></tr>
+<tr><td>API 服务</td><td>家里电脑</td><td>FastAPI：收图 → 识别 → 分析 → 返回着法（中文记法 + 起终点坐标）</td></tr>
+<tr><td>组网</td><td>手机 ⇄ 电脑</td><td>Tailscale 虚拟内网，免费、无公网暴露、手机装官方 App 即可</td></tr>
+<tr><td>手机端 P1</td><td>iOS 快捷指令</td><td>截屏 → POST → 通知显示着法 → 删除截图</td></tr>
+<tr><td>手机端 P2/P3</td><td>自研 iOS App</td><td>ReplayKit 屏幕广播采集 + 画中画(PiP)悬浮显示</td></tr>
+</table></div>
+<p>运行前提：家里电脑开机在线（v1 已设置不睡眠）。电脑关机时手机端应得到明确的"服务不可达"提示，而不是无响应。</p>
+
+<h2 id="s3">P1：服务端 + 快捷指令截图版</h2>
+<h3>功能要求</h3>
+<ul>
+<li>HTTP 接口 <code>POST /analyze</code>：收一张 JJ 竖屏截图，返回 JSON：FEN、行棋方、建议着法（中文记法如"炮二平五"+ 起终点格子坐标）、分数、耗时。</li>
+<li>识别覆盖用户常用的 JJ 皮肤、红黑双方视角；对"非对局画面"（菜单、结算弹窗）返回明确错误而不是乱猜。</li>
+<li>行棋方判断：优先从画面特征（计时高亮等）推断；推断不了时按"截图者即将行棋"处理，并在返回中说明。</li>
+<li>引擎参数沿用 v1 结论：4~8 线程、固定时间 1~1.5 秒，服务端配置文件可调。</li>
+<li>快捷指令：一次触发完成"截屏 → 上传 → 通知显示着法 → 删除该截图"；建议绑定"轻点背面两下"。相册零残留。</li>
+<li>服务开机自启（Windows 计划任务或 nssm），崩溃自动拉起。</li>
+</ul>
+<h3>识别数据</h3>
+<ul>
+<li>素材来源：5KPlayer 镜像录制（<code>C:\Users\19705\Videos\Mirror Videos</code>）抽帧 + 手机直接截图，覆盖 开局/中局/残局 × 红黑视角 × 动画瞬间 × 带弹窗干扰。</li>
+<li>标注量先小后大：先用少量样本验证 TCHESS 的 yolov11.onnx 直接复用的效果（GPL，个人使用），不达标再自行标注微调。训练可用 5060 PC。</li>
+</ul>
+<h3>验收标准</h3>
+<ul>
+<li>识别：50 张覆盖上述矩阵的截图，FEN 全对率 ≥ 95%，错误样本记录原因。</li>
+<li>端到端：手机 4G/5G 网络下，双击背面到收到通知 ≤ 5 秒（目标 3 秒）。</li>
+<li>非对局画面 10 张，全部返回明确错误。</li>
+<li>连续使用一局棋（约 40 步）无需重启服务，相册无残留截图。</li>
+</ul>
+
+<h2 id="s4">P2：链路验证 App（最小壳）</h2>
+<p>目的单一：验证整个 App 方案中唯一"做了才知道"的风险——<strong>ReplayKit 广播扩展能否在 50MB 内存限制内，把屏幕帧稳定回传到家里服务端</strong>。不做识别、不做提示、不做界面美化。</p>
+<h3>功能要求</h3>
+<ul>
+<li>iOS App + Broadcast Upload Extension：控制中心开启屏幕广播后，扩展以 1~2 fps 抽帧、压缩（缩放 + JPEG/HEIC）、经 Tailscale 发往服务端。</li>
+<li>服务端新增 <code>POST /frame</code> 收帧落盘，提供一个简单页面或日志确认帧到达与延迟。</li>
+<li>App 主界面只显示：连接状态、已发送帧数、最近一帧缩略图（可选）。</li>
+</ul>
+<h3>工程与分发</h3>
+<ul>
+<li>代码由 AI 生成（Swift），人只负责推送与装机验证；工程放 <code>Yxiansheng1/pikayu</code> 仓库 <code>ios/</code> 目录。</li>
+<li>打包：GitHub Actions macOS runner 出未签名 IPA（本地无 Mac）。</li>
+<li>安装二选一，P2 期间实测后定：第三方企业签（浏览器安装 + 设置里信任，注意掉签风险）或 SideStore 免费自签（7 天自动续签，最多 3 个 App）。</li>
+</ul>
+<h3>验收标准</h3>
+<ul>
+<li>打开 JJ 下棋 10 分钟，广播扩展不被系统杀死（内存超限会被静默终止，需实测）。</li>
+<li>服务端连续收到帧，帧间隔稳定，单帧从采集到落盘延迟 ≤ 2 秒（蜂窝网络）。</li>
+<li>发热、耗电record实际情况，不设硬指标。</li>
+</ul>
+<div class="risk"><strong>风险出口：</strong>若 50MB 内存内无法稳定采集回传（P2 失败），退回 P1 快捷指令版为长期方案，P3 取消。此为立项时已接受的结果之一。</div>
+
+<h2 id="s5">P3：完整 App（悬浮提示）</h2>
+<p>在 P2 壳上叠加目标体验。iOS 没有安卓式悬浮窗，悬浮效果用<strong>画中画（PiP）</strong>实现：App 把提示渲染成视频层浮在 JJ 上方。</p>
+<h3>功能要求</h3>
+<ul>
+<li>服务端对收到的帧流自动识别局面变化（复用 P1 识别 + 稳定局面判定：连续 N 帧一致才算稳定，过滤动画/弹窗），局面变化后自动分析并把建议推回手机。</li>
+<li>PiP 悬浮窗显示：当前识别的小棋盘 + 建议着法（箭头 + 中文记法）。新建议时更新画面。</li>
+<li>提示必须与当前稳定局面一致；识别失败或服务断开时悬浮窗显示明确状态，不显示旧建议。</li>
+<li>开关流程 ≤ 3 步：开 App → 开广播 → 开画中画，然后切到 JJ。</li>
+</ul>
+<h3>验收标准（对齐 v1 的同类指标）</h3>
+<ul>
+<li>连续观察 30 次落子：漏识别、错局面、旧提示逐项记录；稳定画面出现后 ≤ 4 秒悬浮窗显示匹配建议（蜂窝网络，初始目标，未达标记录实际值再调）。</li>
+<li>红黑双方视角各测一局完整对局。</li>
+<li>异常恢复：断网重连、杀 App 重开、广播中断重启，均能在 1 分钟内恢复正常提示。</li>
+</ul>
+
+<h2 id="s6">已定技术决策</h2>
+<div class="tablewrap"><table>
+<tr><th>决策</th><th>选择</th><th>理由 / 备注</th></tr>
+<tr><td>大脑位置</td><td>家里电脑 Python 服务</td><td>复用 v1 资产与用户主技术栈；iOS 端保持薄壳</td></tr>
+<tr><td>组网</td><td>Tailscale</td><td>免费、免公网 IP、不暴露端口；手机电脑各装一个客户端</td></tr>
+<tr><td>引擎</td><td>Pikafish 2026-09-06 通用版</td><td>v1 已验证：8 线程约 600 万 NPS；新版重复局面规则内置，无需配置</td></tr>
+<tr><td>识别</td><td>YOLO 检测 → FEN</td><td>参考 TCHESS 开源实现（GPL，个人用途）；JJ 皮肤效果需实测，必要时自行标注微调（可用 5060 训练）</td></tr>
+<tr><td>iOS 打包</td><td>GitHub Actions macOS runner</td><td>本地无 Mac；公开仓库免费额度；调试循环慢（推送→CI→装机）为已接受代价</td></tr>
+<tr><td>安装分发</td><td>企业签 或 SideStore，P2 定</td><td>企业签：浏览器装+信任，最省事但有掉签风险；SideStore：免费、7天自动续签</td></tr>
+<tr><td>屏幕采集</td><td>ReplayKit 广播扩展</td><td>iOS 唯一允许持续读取他 App 画面的机制</td></tr>
+<tr><td>悬浮显示</td><td>画中画（PiP）</td><td>iOS 无悬浮窗；PiP 是成熟替代方案（悬浮翻译/字幕类 App 同款做法）</td></tr>
+<tr><td>截图隐私</td><td>即传即删，服务端默认不留存</td><td>P1 快捷指令删除截图；服务端仅调试模式落盘</td></tr>
+</table></div>
+
+<h2 id="s7">风险清单</h2>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>风险</th><th>等级</th><th>应对</th></tr>
+<tr><td>1</td><td>广播扩展 50MB 内存限制导致采集被杀</td><td><strong>高（P2 专门验证）</strong></td><td>低帧率 + 先缩放后压缩 + 扩展内零解码；失败则退回 P1 方案</td></tr>
+<tr><td>2</td><td>JJ 皮肤识别准确率不达标</td><td>中</td><td>先验证 TCHESS 现成模型，不行就自标数据微调；验收卡 95% 门槛</td></tr>
+<tr><td>3</td><td>企业签掉签 / 自签续签失败</td><td>中</td><td>两条安装路线互为备份；IPA 始终保留在仓库 Release</td></tr>
+<tr><td>4</td><td>家里电脑离线导致服务不可用</td><td>中</td><td>手机端明确报错；电脑设不睡眠 + 服务自启；后续可选迁移到 5060 PC 常开</td></tr>
+<tr><td>5</td><td>蜂窝网络延迟波动</td><td>低</td><td>验收按蜂窝网络测；帧压缩到百 KB 级</td></tr>
+<tr><td>6</td><td>无 Mac 的 CI 调试循环慢</td><td>低</td><td>已接受；Swift 代码尽量一次写对，日志回传服务端便于远程排错</td></tr>
+<tr><td>7</td><td>平台对局公平性 / 账号风险</td><td>—</td><td>定位个人练习（人机、残局、复盘）；真人排位实战使用由用户自行承担风险，工具不做自动走子</td></tr>
+</table></div>
+
+<h2 id="s8">与 v1 的关系</h2>
+<ul>
+<li>v1（投屏 + TCHESS）继续作为"在家练习"的方案保留使用，两者互不影响。</li>
+<li>v2 复用 v1 资产：皮卡鱼引擎及参数结论、5KPlayer 镜像录制（识别训练素材来源）、不睡眠等电脑设置。</li>
+<li>v1 文档遗留的"提示显示在 iPhone 上需另行评估"即本文件；v1 剩余验收（20 局面核对、30 次同步观察）与 v2 P1 可并行推进。</li>
+</ul>
+<p><strong>下一步</strong>：P1 开工。第一个任务：从镜像录像与手机截图收集识别素材，验证 TCHESS 现成 yolov11 模型在 JJ 皮肤上的识别效果，据此决定是否需要自行标注训练。</p>
+</article>
+<footer>本文件可离线阅读。配套 v1 文档见同目录。</footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-multipart
+# onnxruntime 1.18.1: newer versions crash on import under Anaconda Python (old MSVC runtime)
+onnxruntime==1.18.1
+numpy<2
+pillow
+pillow-heif
