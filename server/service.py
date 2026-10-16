@@ -9,6 +9,7 @@ from PIL import Image
 from engine import Engine
 from notation import uci_to_chinese, pv_to_chinese
 from recognizer import Recognizer
+from rules import resolve_side
 
 
 @dataclass
@@ -39,6 +40,10 @@ class HintService:
         # 行棋方：默认 = 截图者 = 棋盘下方一方（截图就是为了问自己这步怎么走）
         if side not in ('red', 'black'):
             side = 'black' if r.flipped else 'red'
+        side, why = resolve_side(r.board, side)
+        if side is None:
+            msg = f'识别结果不合法：{why}'
+            return Hint(False, msg, error=msg, fen=r.fen_board, elapsed_ms=_ms(t0))
         fen = f"{r.fen_board} {'w' if side == 'red' else 'b'} - - 0 1"
 
         a = self.eng.analyze(fen)

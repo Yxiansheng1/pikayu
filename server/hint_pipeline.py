@@ -18,8 +18,10 @@ from PIL import Image
 from engine import Engine
 from notation import uci_to_chinese, pv_to_chinese
 from recognizer import Recognizer
+from rules import resolve_side
 
 STABLE_FRAMES = 2
+BAD_FRAME_DIR = 'debug/bad_frames'
 START_BOARD = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR'
 
 
@@ -53,6 +55,7 @@ class HintPipeline:
         self._stable_key = ''
         self.frames_processed = 0
         self.recog_ms = 0
+        self._last_bad = ''
         threading.Thread(target=self._loop, daemon=True).start()
 
     # ---------- 对外 ----------
@@ -112,7 +115,17 @@ class HintPipeline:
         # ---- 新的稳定局面 ----
         user_side = 'black' if r.flipped else 'red'
         prev = self._stable
-        side_to_move = self._infer_side_to_move(prev, r.board, key, user_side)
+        guess = self._infer_side_to_move(prev, r.board, key, user_side)
+        # 用规则校验兜底：不合法的局面不送引擎（Pikafish 会直接退出）；与"将军"矛盾时纠正行棋方
+        side_to_move, why = resolve_side(r.board, guess)
+        if side_to_move is None:
+            if key != self._last_bad:
+                self._last_bad = key
+                self.log(f'  hint: 局面不合法，跳过（{why}） fen={key}')
+                self._save_bad_frame(data, why)
+            return
+        if why:
+            self.log(f'  hint: {why}')
         self._stable, self._stable_key = r.board, key
         view_board = _to_view(r.board, r.flipped)
 
@@ -146,6 +159,18 @@ class HintPipeline:
             self._set(status='your_turn', text=f'{move}（{score}）', move=move, score=score, pv=pv,
                       arrow=arrow, latency_ms=int((time.time() - frame_ts) * 1000))
         self.log(f'  hint: {move}（{score}） 耗时 {int((time.time() - frame_ts) * 1000)}ms')
+
+    def _save_bad_frame(self, data: bytes, why: str):
+        import os
+        try:
+            os.makedirs(BAD_FRAME_DIR, exist_ok=True)
+            files = sorted(os.listdir(BAD_FRAME_DIR))
+            for f in files[:-19]:  # 最多保留 20 张
+                os.remove(os.path.join(BAD_FRAME_DIR, f))
+            with open(os.path.join(BAD_FRAME_DIR, f'{int(time.time() * 1000)}.jpg'), 'wb') as fp:
+                fp.write(data)
+        except Exception:
+            pass
 
     @staticmethod
     def _infer_side_to_move(prev, cur, key, user_side) -> str:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,7 @@ class Engine:
         self.threads, self.hash_mb, self.movetime_ms = threads, hash_mb, movetime_ms
         self.lock = threading.Lock()
         self.proc: subprocess.Popen | None = None
+        self.tail: deque[str] = deque(maxlen=5)
         self._start()
 
     def _start(self):
@@ -48,8 +50,11 @@ class Engine:
         assert self.proc and self.proc.stdout
         line = self.proc.stdout.readline()
         if not line:
-            raise RuntimeError('引擎进程已退出')
-        return line.strip()
+            reason = next((l for l in reversed(self.tail) if 'CRITICAL' in l or 'error' in l.lower()), '')
+            raise RuntimeError('引擎进程已退出' + (f'：{reason}' if reason else ''))
+        line = line.strip()
+        self.tail.append(line)
+        return line
 
     def _wait_for(self, token: str) -> list[str]:
         lines = []
