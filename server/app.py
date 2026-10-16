@@ -27,6 +27,7 @@ except ImportError:
 
 from engine import Engine
 from recognizer import Recognizer
+from hint_pipeline import HintPipeline
 from service import HintService, hint_dict
 
 HERE = Path(__file__).parent
@@ -104,6 +105,7 @@ class FrameStats:
 
 
 frames = FrameStats()
+pipeline = HintPipeline(svc.rec, svc.eng, log=log)
 
 
 @app.post('/frame')
@@ -115,6 +117,7 @@ async def frame_upload(request: Request):
     if frames.count == 0:
         frames.first_ts = now
     frames.latest = data
+    pipeline.submit(data)
     frames.count += 1
     frames.bytes_total += len(data)
     frames.last_ts = now
@@ -137,6 +140,7 @@ async def frame_event(request: Request):
     frames.events.append(line)
     log(f'  broadcast event: {line}')
     if ev == 'start':  # 新一轮广播，统计清零
+        pipeline.reset()
         events = frames.events
         frames.__init__()
         frames.events = events
@@ -149,6 +153,15 @@ def frame_latest():
     if not frames.latest:
         raise HTTPException(404, 'no frame yet')
     return Response(frames.latest, media_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/hint')
+def hint():
+    """App 画中画轮询：返回最新提示（含屏幕视角棋盘和箭头）。"""
+    h = pipeline.snapshot()
+    h['recog_ms'] = pipeline.recog_ms
+    h['frame_age_s'] = round(time.time() - frames.last_ts, 1) if frames.last_ts else None
+    return h
 
 
 @app.get('/frame/stats')
@@ -183,6 +196,7 @@ svg{background:#fafbfa;border:1px solid #e5eae7;border-radius:6px}pre{font-size:
 <tr><td>内存峰值</td><td id="peak">—</td></tr>
 <tr><td>手机端 发送/丢弃/失败</td><td id="cs">—</td></tr>
 </table>
+<div style="margin-top:10px">当前提示</div><div id="hint" class="big ok" style="font-size:22px">—</div><pre id="hintmeta"></pre>
 <div style="margin-top:10px">广播事件</div><pre id="ev"></pre>
 </div></div>
 <script>
@@ -203,6 +217,10 @@ async function tick(){
       pts.map((v,i)=>(i*320/(pts.length-1)).toFixed(1)+','+(120-Math.min(v,60)*2).toFixed(1)).join(' ')+'"/>';}
     svg.innerHTML=h;
     if(s.count>0) document.getElementById('img').src='/frame/latest.jpg?t='+Date.now();
+    const h=await (await fetch('/hint')).json();
+    set('hint',h.text||'—');
+    set('hintmeta','状态 '+h.status+(h.side_to_move?' · 轮到'+(h.side_to_move==='red'?'红':'黑'):'')+
+      (h.latency_ms?' · 提示耗时 '+h.latency_ms+'ms':'')+' · 识别 '+h.recog_ms+'ms'+(h.pv&&h.pv.length>1?'\n变化: '+h.pv.join(' '):''));
   }catch(e){}
 }
 setInterval(tick,1000);tick();

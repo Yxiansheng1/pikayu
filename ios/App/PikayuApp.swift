@@ -8,67 +8,59 @@ struct PikayuApp: App {
     }
 }
 
+let kServerURL = Bundle.main.object(forInfoDictionaryKey: "PikayuServerURL") as? String
+    ?? "http://100.108.35.123:8765"
+
 struct ContentView: View {
-    private let serverURL = Bundle.main.object(forInfoDictionaryKey: "PikayuServerURL") as? String
-        ?? "http://100.108.35.123:8765"
-    @State private var health = "未检测"
+    @StateObject private var pip = HintPiP(serverURL: kServerURL)
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("象棋提示 · 链路验证").font(.title2).bold()
+        ScrollView {
+            VStack(spacing: 16) {
+                Text("象棋提示").font(.title2).bold()
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("服务器：\(serverURL)").font(.footnote).foregroundStyle(.secondary)
                 HStack {
-                    Text("连接：\(health)").font(.footnote)
+                    Circle().fill(pip.connection == "已连接" ? Color.green : Color.red).frame(width: 8, height: 8)
+                    Text("服务器：\(pip.connection)").font(.footnote)
                     Spacer()
-                    Button("检测") { checkHealth() }.font(.footnote)
+                    Text(kServerURL).font(.caption2).foregroundStyle(.secondary)
                 }
+                .padding(.horizontal)
+
+                // 悬浮窗预览（画中画就是把这块画面浮到其他 App 上）
+                PiPPreview(layer: pip.displayLayer)
+                    .frame(width: 216, height: 288)
+
+                step(1, "开始采集", "点下面的圆形按钮 → 选「象棋提示采集」→ 开始直播")
+                BroadcastPicker()
+                    .frame(width: 72, height: 72)
+                    .background(Color.accentColor.opacity(0.12), in: Circle())
+
+                step(2, "开启悬浮窗", pip.pipActive ? "悬浮窗已开启，可以切到 JJ象棋 了" : "点下面按钮，或直接回到桌面也会自动浮起")
+                Button(pip.pipActive ? "关闭悬浮窗" : "开启悬浮窗") { pip.togglePiP() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!pip.pipPossible && !pip.pipActive)
+
+                step(3, "去下棋", "切到 JJ象棋，轮到你走时悬浮窗显示箭头和走法")
             }
-            .padding()
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-
-            // 系统广播选择器：点它弹出系统面板，选"象棋提示采集"后点"开始直播"
-            BroadcastPicker()
-                .frame(width: 88, height: 88)
-                .background(Color.accentColor.opacity(0.12), in: Circle())
-            Text("点上面的圆形按钮 → 选择「象棋提示采集」→ 开始直播\n然后切到 JJ象棋 正常下棋")
-                .font(.footnote)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-
-            Text("在电脑浏览器打开\n\(serverURL)/frames\n可实时看到传回的画面和内存占用")
-                .font(.footnote)
-                .multilineTextAlignment(.center)
-            Spacer()
+            .padding(.vertical, 24)
         }
-        .padding(24)
-        .onAppear { checkHealth() }
+        .onAppear { pip.start() }
     }
 
-    private func checkHealth() {
-        health = "检测中…"
-        guard let url = URL(string: serverURL + "/health") else { return }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 5
-        URLSession.shared.dataTask(with: req) { data, _, error in
-            let text: String
-            if let error {
-                text = "失败：\(error.localizedDescription)"
-            } else if let data, String(decoding: data, as: UTF8.self).contains("\"ok\":true") {
-                text = "正常 ✅"
-            } else {
-                text = "异常响应"
-            }
-            DispatchQueue.main.async { health = text }
-        }.resume()
+    private func step(_ n: Int, _ title: String, _ detail: String) -> some View {
+        VStack(spacing: 2) {
+            Text("\(n). \(title)").font(.headline)
+            Text(detail).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .padding(.horizontal)
     }
 }
 
 struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
-        let v = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 88, height: 88))
-        // 侧载重签时 Bundle ID 可能被改写，所以用"主 App ID + .broadcast"动态拼，而不是写死
+        let v = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 72, height: 72))
+        // 侧载重签时 Bundle ID 可能被改写，所以用"主 App ID + .broadcast"动态拼
         if let id = Bundle.main.bundleIdentifier {
             v.preferredExtension = id + ".broadcast"
         }
