@@ -1,7 +1,9 @@
 # D:\pikayu 下还有 5KPlayer、TCHESS、Pikafish 等第三方软件和压缩包，一律不进仓库。
-# 采用白名单：只收 server/、docs/ 和根目录说明文件。
+# 采用白名单：只收以下目录和根目录说明文件。
 /*
 !/server/
+!/ios/
+!/.github/
 !/docs/
 !/README.md
 !/LICENSE
@@ -16,3 +18,10 @@ server/diag.txt
 server/diag.bat
 server/diag_run.py
 server/fix.bat
+
+# ios 本地/CI 产物
+ios/*.xcodeproj/
+ios/build/
+ios/Payload/
+ios/*.ipa
+ios/build.log

@@ -1,0 +1,58 @@
+name: iOS build (unsigned IPA)
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -version
+          xcodebuild -project Pikayu.xcodeproj -target Pikayu \
+            -configuration Release -sdk iphoneos \
+            SYMROOT="$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log
+
+      - name: Report compile errors as annotations
+        if: failure()
+        working-directory: ios
+        run: |
+          # 把 xcodebuild 的 error 行转成 GitHub 注解，失败原因直接显示在运行页面上
+          grep -E "error:|fatal error" build.log | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+          exit 1
+
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          APP=build/Release-iphoneos/Pikayu.app
+          test -d "$APP/PlugIns/Broadcast.appex" || { echo "::error::Broadcast.appex 未被打包进 App"; exit 1; }
+          mkdir -p Payload && cp -R "$APP" Payload/
+          zip -qry Pikayu.ipa Payload
+          ls -la Pikayu.ipa
+          echo "::notice::IPA 打包成功：$(du -h Pikayu.ipa | cut -f1)，含 Broadcast.appex"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pikayu-ipa
+          path: ios/Pikayu.ipa
+          retention-days: 30

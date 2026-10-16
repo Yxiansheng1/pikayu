@@ -1,0 +1,56 @@
+# XcodeGen 工程描述：CI 上执行 `xcodegen generate` 生成 Pikayu.xcodeproj
+name: Pikayu
+options:
+  bundleIdPrefix: com.yxiansheng1
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGN_IDENTITY: ""
+targets:
+  Pikayu:
+    type: application
+    platform: iOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: 象棋提示
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        PikayuServerURL: http://100.108.35.123:8765
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yxiansheng1.pikayu
+    dependencies:
+      - target: Broadcast
+  Broadcast:
+    type: app-extension
+    platform: iOS
+    sources: [Broadcast]
+    info:
+      path: Broadcast/Info.plist
+      properties:
+        CFBundleDisplayName: 象棋提示采集
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        PikayuServerURL: http://100.108.35.123:8765
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yxiansheng1.pikayu.broadcast

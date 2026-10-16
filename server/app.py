@@ -53,6 +53,9 @@ def log(msg: str):
 async def access_log(request: Request, call_next):
     t0 = time.time()
     resp = await call_next(request)
+    if request.url.path.startswith(('/frame/latest', '/frame/stats')) or (
+            request.url.path == '/frame' and resp.status_code == 200):
+        return resp  # 每秒一帧的正常上传和监控轮询不进日志，免得刷屏；失败的仍会记录
     log(f"{request.client.host if request.client else '-'} {request.method} {request.url.path}"
         f"?{request.url.query} -> {resp.status_code} ({int((time.time() - t0) * 1000)}ms)"
         f" ctype={request.headers.get('content-type', '')!r} len={request.headers.get('content-length', '?')}")
@@ -67,6 +70,143 @@ def health():
 @app.get('/', response_class=HTMLResponse)
 def index():
     return TEST_PAGE
+
+
+# ---------------- P2：屏幕广播帧接收（链路验证） ----------------
+class FrameStats:
+    def __init__(self):
+        self.latest: bytes = b''
+        self.count = 0
+        self.bytes_total = 0
+        self.first_ts = 0.0
+        self.last_ts = 0.0
+        self.last_seq = 0
+        self.mem_mb: list[tuple[float, float]] = []  # (时间, 扩展内存MB)，保留最近 600 个点
+        self.mem_peak = 0.0
+        self.client_stats = ''
+        self.events: list[str] = []
+
+    def snapshot(self) -> dict:
+        now = time.time()
+        span = (self.last_ts - self.first_ts) if self.count > 1 else 0
+        return {
+            'count': self.count,
+            'fps': round((self.count - 1) / span, 2) if span > 0 else 0,
+            'avg_kb': round(self.bytes_total / self.count / 1024, 1) if self.count else 0,
+            'last_seq': self.last_seq,
+            'since_last_s': round(now - self.last_ts, 1) if self.last_ts else None,
+            'mem_now': self.mem_mb[-1][1] if self.mem_mb else None,
+            'mem_peak': self.mem_peak,
+            'mem_series': [m for _, m in self.mem_mb[-120:]],
+            'client_sent_dropped_failed': self.client_stats,
+            'events': self.events[-10:],
+        }
+
+
+frames = FrameStats()
+
+
+@app.post('/frame')
+async def frame_upload(request: Request):
+    data = await request.body()
+    if not data:
+        raise HTTPException(400, 'empty')
+    now = time.time()
+    if frames.count == 0:
+        frames.first_ts = now
+    frames.latest = data
+    frames.count += 1
+    frames.bytes_total += len(data)
+    frames.last_ts = now
+    frames.last_seq = int(request.headers.get('x-seq', '0') or 0)
+    frames.client_stats = request.headers.get('x-stats', '')
+    try:
+        mem = float(request.headers.get('x-mem-mb', '-1'))
+        frames.mem_mb = (frames.mem_mb + [(now, mem)])[-600:]
+        frames.mem_peak = max(frames.mem_peak, mem)
+    except ValueError:
+        pass
+    return {'ok': True}
+
+
+@app.post('/frame/event')
+async def frame_event(request: Request):
+    ev = request.headers.get('x-event', '?')
+    mem = request.headers.get('x-mem-mb', '?')
+    line = f"{time.strftime('%H:%M:%S')} {ev} (内存 {mem} MB)"
+    frames.events.append(line)
+    log(f'  broadcast event: {line}')
+    if ev == 'start':  # 新一轮广播，统计清零
+        events = frames.events
+        frames.__init__()
+        frames.events = events
+    return {'ok': True}
+
+
+@app.get('/frame/latest.jpg')
+def frame_latest():
+    from fastapi.responses import Response
+    if not frames.latest:
+        raise HTTPException(404, 'no frame yet')
+    return Response(frames.latest, media_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/frame/stats')
+def frame_stats():
+    return frames.snapshot()
+
+
+@app.get('/frames', response_class=HTMLResponse)
+def frames_page():
+    return FRAMES_PAGE
+
+
+FRAMES_PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>广播链路监控</title>
+<style>body{font-family:"Microsoft YaHei",sans-serif;margin:24px;color:#243142;background:#f3f5f4}
+.wrap{display:flex;gap:24px;flex-wrap:wrap}.card{background:#fff;border-radius:12px;padding:16px 20px;border:1px solid #e0e6e3}
+img{height:640px;max-width:100%;border-radius:8px;border:1px solid #ddd;background:#222}
+table td{padding:4px 12px 4px 0;font-size:15px}td:first-child{color:#66746d}
+.big{font-size:28px;font-weight:bold}.ok{color:#236657}.warn{color:#b8860b}.bad{color:#c0392b}
+svg{background:#fafbfa;border:1px solid #e5eae7;border-radius:6px}pre{font-size:13px;color:#555}</style></head><body>
+<h2>P2 广播链路监控</h2>
+<div class="wrap">
+<div class="card"><img id="img" alt="等待第一帧…"></div>
+<div class="card" style="min-width:340px">
+<div>扩展内存（上限约 50MB）</div><div id="mem" class="big">—</div>
+<svg id="chart" width="320" height="120"></svg>
+<table>
+<tr><td>已收帧数</td><td id="count">0</td></tr>
+<tr><td>帧率</td><td id="fps">—</td></tr>
+<tr><td>平均帧大小</td><td id="kb">—</td></tr>
+<tr><td>距上一帧</td><td id="since">—</td></tr>
+<tr><td>内存峰值</td><td id="peak">—</td></tr>
+<tr><td>手机端 发送/丢弃/失败</td><td id="cs">—</td></tr>
+</table>
+<div style="margin-top:10px">广播事件</div><pre id="ev"></pre>
+</div></div>
+<script>
+async function tick(){
+  try{
+    const s=await (await fetch('/frame/stats')).json();
+    const set=(id,v)=>document.getElementById(id).textContent=v;
+    set('count',s.count);set('fps',s.fps+' fps');set('kb',s.avg_kb+' KB');
+    set('since',s.since_last_s==null?'—':s.since_last_s+' 秒');
+    set('peak',s.mem_peak? s.mem_peak.toFixed(1)+' MB':'—');set('cs',s.client_sent_dropped_failed||'—');
+    set('ev',(s.events||[]).join('\\n'));
+    const m=document.getElementById('mem');
+    if(s.mem_now!=null){m.textContent=s.mem_now.toFixed(1)+' MB';
+      m.className='big '+(s.mem_now<35?'ok':s.mem_now<45?'warn':'bad');}
+    const pts=s.mem_series||[];const svg=document.getElementById('chart');
+    let h='<line x1="0" y1="'+(120-50*2)+'" x2="320" y2="'+(120-50*2)+'" stroke="#c0392b" stroke-dasharray="4"/>';
+    if(pts.length>1){h+='<polyline fill="none" stroke="#236657" stroke-width="2" points="'+
+      pts.map((v,i)=>(i*320/(pts.length-1)).toFixed(1)+','+(120-Math.min(v,60)*2).toFixed(1)).join(' ')+'"/>';}
+    svg.innerHTML=h;
+    if(s.count>0) document.getElementById('img').src='/frame/latest.jpg?t='+Date.now();
+  }catch(e){}
+}
+setInterval(tick,1000);tick();
+</script></body></html>"""
 
 
 TEST_PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
