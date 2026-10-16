@@ -63,7 +63,7 @@ final class HintPiP: NSObject, ObservableObject {
     private var lastEnqueue = Date.distantPast
     private var started = false
 
-    static let size = CGSize(width: 360, height: 480)
+    static let size = CGSize(width: 400, height: 160)  // 2.5:1 扁条
 
     init(serverURL: String) {
         hintURL = URL(string: serverURL + "/hint")!
@@ -187,10 +187,6 @@ extension HintPiP: AVPictureInPictureControllerDelegate {
 // MARK: - 把提示画成一张图
 
 enum HintRenderer {
-    static let glyph: [Character: String] = [
-        "K": "帅", "A": "仕", "B": "相", "N": "马", "R": "车", "C": "炮", "P": "兵",
-        "k": "将", "a": "士", "b": "象", "n": "馬", "r": "車", "c": "砲", "p": "卒",
-    ]
 
     static func pixelBuffer(for h: HintData, size: CGSize) -> CVPixelBuffer? {
         let w = Int(size.width), hgt = Int(size.height)
@@ -216,96 +212,92 @@ enum HintRenderer {
         return pb
     }
 
+    /// 紧凑横条：左边迷你棋盘（棋子画成红/黑小圆点 + 绿色箭头），右边走法文字。
+    /// 悬浮窗会被屏幕采集一起录进去，所以棋子刻意画成不带字的小点：
+    /// 识别模型认的是 JJ 那种带字棋子，小圆点既不像、尺寸也远小于真棋子（服务端还会按尺寸过滤）。
     static func draw(_ h: HintData, size: CGSize) {
-        let bg = UIColor(red: 0.12, green: 0.16, blue: 0.15, alpha: 1)
-        bg.setFill()
+        UIColor(red: 0.10, green: 0.13, blue: 0.12, alpha: 1).setFill()
         UIRectFill(CGRect(origin: .zero, size: size))
 
-        // ---- 顶部文字 ----
-        let stale = (h.frameAgeS ?? 99) > 5
-        var title = h.text.isEmpty ? "—" : h.text
-        var color = UIColor(red: 0.45, green: 0.85, blue: 0.6, alpha: 1)
-        switch h.status {
-        case "your_turn": break
-        case "opponent_turn": color = .lightGray
-        case "thinking": color = UIColor(red: 0.95, green: 0.8, blue: 0.35, alpha: 1)
-        case "offline": title = "连不上电脑"; color = UIColor(red: 0.95, green: 0.45, blue: 0.4, alpha: 1)
-        default: color = .lightGray
-        }
-        if stale && h.status != "offline" { title = "画面中断，请开启采集"; color = UIColor(red: 0.95, green: 0.45, blue: 0.4, alpha: 1) }
-        drawCentered(title, in: CGRect(x: 8, y: 14, width: size.width - 16, height: 44),
-                     font: .systemFont(ofSize: 30, weight: .bold), color: color)
-        if h.pv.count > 1 && h.status == "your_turn" {
-            drawCentered("→ " + h.pv.dropFirst().joined(separator: " "), in: CGRect(x: 8, y: 62, width: size.width - 16, height: 26),
-                         font: .systemFont(ofSize: 17), color: .lightGray)
-        }
-
-        // ---- 棋盘 ----
-        let cell: CGFloat = 36, x0: CGFloat = 36, y0: CGFloat = 116
-        let boardRect = CGRect(x: x0 - 22, y: y0 - 22, width: cell * 8 + 44, height: cell * 9 + 44)
-        UIColor(red: 0.87, green: 0.75, blue: 0.55, alpha: 1).setFill()
-        UIBezierPath(roundedRect: boardRect, cornerRadius: 8).fill()
-
-        let line = UIBezierPath()
+        // ---- 左：迷你棋盘 ----
+        let cell = (size.height - 34) / 9          // 160 高 -> 14
+        let x0: CGFloat = 17, y0: CGFloat = 17
+        UIColor(red: 0.85, green: 0.74, blue: 0.55, alpha: 1).setFill()
+        UIBezierPath(roundedRect: CGRect(x: 5, y: 5, width: cell * 8 + 24, height: cell * 9 + 24), cornerRadius: 6).fill()
+        let grid = UIBezierPath()
         for r in 0..<10 {
-            line.move(to: CGPoint(x: x0, y: y0 + CGFloat(r) * cell))
-            line.addLine(to: CGPoint(x: x0 + 8 * cell, y: y0 + CGFloat(r) * cell))
+            grid.move(to: CGPoint(x: x0, y: y0 + CGFloat(r) * cell)); grid.addLine(to: CGPoint(x: x0 + 8 * cell, y: y0 + CGFloat(r) * cell))
         }
         for c in 0..<9 {
             let x = x0 + CGFloat(c) * cell
             if c == 0 || c == 8 {
-                line.move(to: CGPoint(x: x, y: y0)); line.addLine(to: CGPoint(x: x, y: y0 + 9 * cell))
+                grid.move(to: CGPoint(x: x, y: y0)); grid.addLine(to: CGPoint(x: x, y: y0 + 9 * cell))
             } else {
-                line.move(to: CGPoint(x: x, y: y0)); line.addLine(to: CGPoint(x: x, y: y0 + 4 * cell))
-                line.move(to: CGPoint(x: x, y: y0 + 5 * cell)); line.addLine(to: CGPoint(x: x, y: y0 + 9 * cell))
+                grid.move(to: CGPoint(x: x, y: y0)); grid.addLine(to: CGPoint(x: x, y: y0 + 4 * cell))
+                grid.move(to: CGPoint(x: x, y: y0 + 5 * cell)); grid.addLine(to: CGPoint(x: x, y: y0 + 9 * cell))
             }
         }
-        for top in [CGFloat(0), 7] {  // 九宫斜线
-            line.move(to: CGPoint(x: x0 + 3 * cell, y: y0 + top * cell)); line.addLine(to: CGPoint(x: x0 + 5 * cell, y: y0 + (top + 2) * cell))
-            line.move(to: CGPoint(x: x0 + 5 * cell, y: y0 + top * cell)); line.addLine(to: CGPoint(x: x0 + 3 * cell, y: y0 + (top + 2) * cell))
-        }
-        UIColor(white: 0.25, alpha: 1).setStroke()
-        line.lineWidth = 1
-        line.stroke()
+        UIColor(white: 0.35, alpha: 1).setStroke(); grid.lineWidth = 0.7; grid.stroke()
 
-        // ---- 棋子 ----
-        let rows = h.board.map { Array($0) }
-        for (r, row) in rows.enumerated() where r < 10 {
-            for (c, ch) in row.enumerated() where c < 9 {
-                guard let g = glyph[ch] else { continue }
-                let center = CGPoint(x: x0 + CGFloat(c) * cell, y: y0 + CGFloat(r) * cell)
-                let disc = UIBezierPath(arcCenter: center, radius: 15, startAngle: 0, endAngle: .pi * 2, clockwise: true)
-                UIColor(red: 0.98, green: 0.93, blue: 0.82, alpha: 1).setFill()
-                disc.fill()
-                let isRed = ch.isUppercase
-                (isRed ? UIColor(red: 0.75, green: 0.1, blue: 0.1, alpha: 1) : UIColor(white: 0.15, alpha: 1)).setStroke()
-                disc.lineWidth = 1.5
-                disc.stroke()
-                drawCentered(g, in: CGRect(x: center.x - 15, y: center.y - 11, width: 30, height: 22),
-                             font: .systemFont(ofSize: 17, weight: .bold),
-                             color: isRed ? UIColor(red: 0.75, green: 0.1, blue: 0.1, alpha: 1) : UIColor(white: 0.1, alpha: 1))
+        let stale = (h.frameAgeS ?? 99) > 5
+        let showMove = h.status == "your_turn" && h.arrow.count == 4 && !stale
+        let red = UIColor(red: 0.80, green: 0.12, blue: 0.12, alpha: 1)
+        let black = UIColor(white: 0.12, alpha: 1)
+        for (r, row) in h.board.map({ Array($0) }).enumerated() where r < 10 {
+            for (c, ch) in row.enumerated() where c < 9 && ch != "." && ch != " " {
+                let p = CGPoint(x: x0 + CGFloat(c) * cell, y: y0 + CGFloat(r) * cell)
+                (ch.isUppercase ? red : black).setFill()
+                UIBezierPath(arcCenter: p, radius: cell * 0.33, startAngle: 0, endAngle: .pi * 2, clockwise: true).fill()
             }
         }
-
-        // ---- 建议走法箭头 ----
-        if h.status == "your_turn", h.arrow.count == 4, !stale {
+        if showMove {
+            let green = UIColor(red: 0.15, green: 0.85, blue: 0.35, alpha: 1)
             let p0 = CGPoint(x: x0 + CGFloat(h.arrow[1]) * cell, y: y0 + CGFloat(h.arrow[0]) * cell)
             let p1 = CGPoint(x: x0 + CGFloat(h.arrow[3]) * cell, y: y0 + CGFloat(h.arrow[2]) * cell)
-            let green = UIColor(red: 0.1, green: 0.65, blue: 0.3, alpha: 0.9)
-            let ring = UIBezierPath(arcCenter: p0, radius: 17, startAngle: 0, endAngle: .pi * 2, clockwise: true)
-            green.setStroke(); ring.lineWidth = 3; ring.stroke()
+            green.setStroke()
+            let ring = UIBezierPath(arcCenter: p0, radius: cell * 0.55, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+            ring.lineWidth = 2.5; ring.stroke()
+            let target = UIBezierPath(arcCenter: p1, radius: cell * 0.45, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+            target.lineWidth = 2; target.stroke()
             let ang = atan2(p1.y - p0.y, p1.x - p0.x)
-            let tip = CGPoint(x: p1.x - cos(ang) * 4, y: p1.y - sin(ang) * 4)
             let shaft = UIBezierPath()
-            shaft.move(to: CGPoint(x: p0.x + cos(ang) * 16, y: p0.y + sin(ang) * 16))
-            shaft.addLine(to: CGPoint(x: tip.x - cos(ang) * 12, y: tip.y - sin(ang) * 12))
-            shaft.lineWidth = 6; shaft.lineCapStyle = .round; shaft.stroke()
+            shaft.move(to: CGPoint(x: p0.x + cos(ang) * cell * 0.55, y: p0.y + sin(ang) * cell * 0.55))
+            shaft.addLine(to: CGPoint(x: p1.x - cos(ang) * cell * 0.45, y: p1.y - sin(ang) * cell * 0.45))
+            shaft.lineWidth = 3; shaft.lineCapStyle = .round; shaft.stroke()
+            let tip = CGPoint(x: p1.x - cos(ang) * cell * 0.45, y: p1.y - sin(ang) * cell * 0.45)
             let head = UIBezierPath()
             head.move(to: tip)
-            head.addLine(to: CGPoint(x: tip.x - cos(ang - 0.45) * 18, y: tip.y - sin(ang - 0.45) * 18))
-            head.addLine(to: CGPoint(x: tip.x - cos(ang + 0.45) * 18, y: tip.y - sin(ang + 0.45) * 18))
-            head.close()
-            green.setFill(); head.fill()
+            head.addLine(to: CGPoint(x: tip.x - cos(ang - 0.5) * 8, y: tip.y - sin(ang - 0.5) * 8))
+            head.addLine(to: CGPoint(x: tip.x - cos(ang + 0.5) * 8, y: tip.y - sin(ang + 0.5) * 8))
+            head.close(); green.setFill(); head.fill()
+        }
+
+        // ---- 右：文字 ----
+        var title = h.move.isEmpty ? (h.text.isEmpty ? "—" : h.text) : h.move
+        var line2 = "", line3 = ""
+        var color = UIColor(red: 0.45, green: 0.88, blue: 0.6, alpha: 1)
+        switch h.status {
+        case "your_turn":
+            line2 = h.score
+            if h.pv.count > 1 { line3 = "→ " + h.pv.dropFirst().prefix(2).joined(separator: " ") }
+        case "opponent_turn": title = "对方思考中"; color = .lightGray
+        case "thinking": title = "计算中…"; color = UIColor(red: 0.95, green: 0.8, blue: 0.35, alpha: 1)
+        case "offline": title = "连不上电脑"; color = UIColor(red: 0.95, green: 0.45, blue: 0.4, alpha: 1)
+        default: color = .lightGray
+        }
+        if stale && h.status != "offline" {
+            title = "请开启采集"; line2 = "画面已中断"; line3 = ""; color = UIColor(red: 0.95, green: 0.45, blue: 0.4, alpha: 1)
+        }
+        let tx = cell * 8 + 38, tw = size.width - tx - 6
+        drawCentered(title, in: CGRect(x: tx, y: size.height * 0.12, width: tw, height: size.height * 0.40),
+                     font: .systemFont(ofSize: size.height * 0.27, weight: .heavy), color: color)
+        if !line2.isEmpty {
+            drawCentered(line2, in: CGRect(x: tx, y: size.height * 0.52, width: tw, height: size.height * 0.20),
+                         font: .systemFont(ofSize: size.height * 0.15, weight: .semibold), color: UIColor(white: 0.85, alpha: 1))
+        }
+        if !line3.isEmpty {
+            drawCentered(line3, in: CGRect(x: tx, y: size.height * 0.73, width: tw, height: size.height * 0.20),
+                         font: .systemFont(ofSize: size.height * 0.13), color: UIColor(white: 0.65, alpha: 1))
         }
     }
 

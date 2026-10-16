@@ -91,6 +91,10 @@ class Recognizer:
         for d in dets:
             if d.label == '0':
                 continue
+            # 尺寸过滤：真棋子宽约 0.9~1.2 格；画中画悬浮窗里的小棋盘也会被屏幕采集录进来，
+            # 它的棋子不到 0.3 格，按 0.55 格为界丢掉，避免混进识别结果
+            if d.w < 0.55 * pw or d.h < 0.55 * ph:
+                continue
             j = int((d.cx - (x0 - pw / 2)) // pw)
             i = int((d.cy - (y0 - ph / 2)) // ph)
             if 0 <= i <= 9 and 0 <= j <= 8 and d.conf > conf_grid[i][j]:

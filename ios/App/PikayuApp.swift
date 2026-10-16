@@ -29,7 +29,7 @@ struct ContentView: View {
 
                 // 悬浮窗预览（画中画就是把这块画面浮到其他 App 上）
                 PiPPreview(layer: pip.displayLayer)
-                    .frame(width: 216, height: 288)
+                    .frame(width: 300, height: 120)
 
                 step(1, "开始采集", "点下面的圆形按钮 → 选「象棋提示采集」→ 开始直播")
                 BroadcastPicker()
@@ -41,7 +41,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!pip.pipPossible && !pip.pipActive)
 
-                step(3, "去下棋", "切到 JJ象棋，轮到你走时悬浮窗显示箭头和走法")
+                step(3, "去下棋", "切到 JJ象棋，把悬浮窗拖到棋盘上方或下方的空白处（双指可缩小），别挡住棋盘")
             }
             .padding(.vertical, 24)
         }
