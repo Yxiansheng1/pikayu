@@ -60,9 +60,14 @@ struct ContentView: View {
 struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let v = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 72, height: 72))
-        // 侧载重签时 Bundle ID 可能被改写，所以用"主 App ID + .broadcast"动态拼
-        if let id = Bundle.main.bundleIdentifier {
-            v.preferredExtension = id + ".broadcast"
+        // 重签工具可能独立改写扩展 ID，读取实际打包的扩展，不能靠拼接猜测。
+        if let plugins = Bundle.main.builtInPlugInsURL,
+           let urls = try? FileManager.default.contentsOfDirectory(at: plugins, includingPropertiesForKeys: nil),
+           let bundle = urls.compactMap({ Bundle(url: $0) }).first(where: {
+               let ext = $0.infoDictionary?["NSExtension"] as? [String: Any]
+               return ext?["NSExtensionPointIdentifier"] as? String == "com.apple.broadcast-services-upload"
+           }) {
+            v.preferredExtension = bundle.bundleIdentifier
         }
         v.showsMicrophoneButton = false
         return v

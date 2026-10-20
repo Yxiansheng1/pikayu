@@ -88,6 +88,9 @@ class HintPipeline:
                 self._process(data, ts)
             except Exception as e:  # 单帧出错不影响后续
                 self.log(f'  hint pipeline 异常: {e!r}')
+                with self._lock:
+                    self._stable_key = ''
+                    self._set(status='error', text='处理失败，正在重试', move='', score='', pv=[], arrow=[])
 
     def _process(self, data: bytes, frame_ts: float):
         t0 = time.time()
@@ -99,9 +102,9 @@ class HintPipeline:
         if not r.ok:
             # 识别失败（不是棋盘 / 动画中 / 弹窗遮挡）：清空候选，保留上一个提示不动
             self._candidate, self._candidate_count = None, 0
-            if self._stable is None:
-                with self._lock:
-                    self._set(status='no_board', text='未检测到棋盘')
+            with self._lock:
+                self._stable_key = ''
+                self._set(status='no_board', text=r.error or '未检测到棋盘', move='', score='', pv=[], arrow=[])
             return
 
         key = r.fen_board
@@ -119,6 +122,9 @@ class HintPipeline:
         # 用规则校验兜底：不合法的局面不送引擎（Pikafish 会直接退出）；与"将军"矛盾时纠正行棋方
         side_to_move, why = resolve_side(r.board, guess)
         if side_to_move is None:
+            with self._lock:
+                self._stable_key = ''
+                self._set(status='no_board', text='棋子识别不确定，等待清晰画面', move='', score='', pv=[], arrow=[])
             if key != self._last_bad:
                 self._last_bad = key
                 self.log(f'  hint: 局面不合法，跳过（{why}） fen={key}')

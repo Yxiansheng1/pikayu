@@ -212,15 +212,15 @@ async function tick(){
     if(s.mem_now!=null){m.textContent=s.mem_now.toFixed(1)+' MB';
       m.className='big '+(s.mem_now<35?'ok':s.mem_now<45?'warn':'bad');}
     const pts=s.mem_series||[];const svg=document.getElementById('chart');
-    let h='<line x1="0" y1="'+(120-50*2)+'" x2="320" y2="'+(120-50*2)+'" stroke="#c0392b" stroke-dasharray="4"/>';
-    if(pts.length>1){h+='<polyline fill="none" stroke="#236657" stroke-width="2" points="'+
+    let chartMarkup='<line x1="0" y1="'+(120-50*2)+'" x2="320" y2="'+(120-50*2)+'" stroke="#c0392b" stroke-dasharray="4"/>';
+    if(pts.length>1){chartMarkup+='<polyline fill="none" stroke="#236657" stroke-width="2" points="'+
       pts.map((v,i)=>(i*320/(pts.length-1)).toFixed(1)+','+(120-Math.min(v,60)*2).toFixed(1)).join(' ')+'"/>';}
-    svg.innerHTML=h;
+    svg.innerHTML=chartMarkup;
     if(s.count>0) document.getElementById('img').src='/frame/latest.jpg?t='+Date.now();
     const h=await (await fetch('/hint')).json();
     set('hint',h.text||'—');
     set('hintmeta','状态 '+h.status+(h.side_to_move?' · 轮到'+(h.side_to_move==='red'?'红':'黑'):'')+
-      (h.latency_ms?' · 提示耗时 '+h.latency_ms+'ms':'')+' · 识别 '+h.recog_ms+'ms'+(h.pv&&h.pv.length>1?'\n变化: '+h.pv.join(' '):''));
+      (h.latency_ms?' · 提示耗时 '+h.latency_ms+'ms':'')+' · 识别 '+h.recog_ms+'ms'+(h.pv&&h.pv.length>1?'\\n变化: '+h.pv.join(' '):''));
   }catch(e){}
 }
 setInterval(tick,1000);tick();

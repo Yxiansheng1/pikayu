@@ -12,7 +12,8 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
-from PIL import Image
+from PIL import Image, ImageOps
+from rules import placement_errors
 
 SIZE = 640
 CONF = 0.5
@@ -78,11 +79,54 @@ class Recognizer:
 
     # ---------- 解析成棋盘 ----------
     def recognize(self, img: Image.Image) -> Result:
+        primary = self._recognize_once(img)
+        if primary.ok:
+            return primary
+        # 去掉皮肤颜色干扰；灰度会丢失红黑信息，必须与彩色检测交叉核对。
+        alternate = self._recognize_once(ImageOps.grayscale(img).convert('RGB'))
+        if not alternate.ok:
+            return primary
+        reference = primary
+        if not primary.board and alternate.board_box:
+            x0, y0, x1, y1 = alternate.board_box
+            margin = max((x1-x0)/8, (y1-y0)/9) * 0.65
+            left, top = max(0, int(x0-margin)), max(0, int(y0-margin))
+            crop = img.crop((left, top, min(img.width, int(x1+margin)), min(img.height, int(y1+margin))))
+            color_dets = [Det(d.label, d.cx+left, d.cy+top, d.w, d.h, d.conf)
+                          for d in self.detect(crop)]
+            reference = self._parse(color_dets, Det('0', (x0+x1)/2, (y0+y1)/2,
+                                                   x1-x0, y1-y0, 1.0))
+        def occupancy(result):
+            return {(r, c): p.isupper() for r, row in enumerate(result.board)
+                    for c, p in enumerate(row) if p != ' '}
+        # 不因规则合法就猜测棋子。空格位置及每枚棋子的红黑归属都必须一致。
+        if reference.board and occupancy(reference) == occupancy(alternate):
+            return alternate
+        return primary
+
+    def _recognize_once(self, img: Image.Image) -> Result:
         dets = self.detect(img)
         boards = [d for d in dets if d.label == '0']
         if not boards:
             return Result(ok=False, dets=dets, error='未检测到棋盘（可能不是对局画面）')
         b = max(boards, key=lambda d: d.w * d.h)
+        # 手机长截图缩到 640 时棋子太小；先定位主棋盘，再以棋盘裁图做第二次识别。
+        margin = max(b.w / 8, b.h / 9) * 0.65
+        left = max(0, int(b.cx - b.w / 2 - margin))
+        top = max(0, int(b.cy - b.h / 2 - margin))
+        right = min(img.width, int(b.cx + b.w / 2 + margin))
+        bottom = min(img.height, int(b.cy + b.h / 2 + margin))
+        if right > left and bottom > top:
+            cropped = self.detect(img.crop((left, top, right, bottom)))
+            mapped = [Det(d.label, d.cx + left, d.cy + top, d.w, d.h, d.conf) for d in cropped]
+            main_boards = [d for d in mapped if d.label == '0' and _iou(d, b) > 0.7]
+            if main_boards:
+                b = max(main_boards, key=lambda d: d.w * d.h)
+                dets = mapped
+        return self._parse(dets, b)
+
+    @staticmethod
+    def _parse(dets: list[Det], b: Det) -> Result:
         x0, y0 = b.cx - b.w / 2, b.cy - b.h / 2
         pw, ph = b.w / 8, b.h / 9
 
@@ -168,7 +212,7 @@ def validate(grid) -> str:
     for c, n in cnt.items():
         if n > LIMITS[c.lower()]:
             return f'棋子数量超限：{c} x{n}'
-    return ''
+    return '；'.join(placement_errors(grid))
 
 
 def render_text(grid) -> str:

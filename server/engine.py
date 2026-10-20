@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import subprocess
 import threading
+import queue
+import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +36,15 @@ class Engine:
             text=True, bufsize=1,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         )
+        self.tail.clear()
+        self._output = queue.Queue()
+        def read_output(proc, output):
+            try:
+                for line in proc.stdout:
+                    output.put(line)
+            finally:
+                output.put(None)
+        threading.Thread(target=read_output, args=(self.proc, self._output), daemon=True).start()
         self._send('uci')
         self._wait_for('uciok')
         self._send(f'setoption name Threads value {self.threads}')
@@ -46,9 +57,14 @@ class Engine:
         self.proc.stdin.write(cmd + '\n')
         self.proc.stdin.flush()
 
-    def _readline(self) -> str:
+    def _readline(self, timeout: float = 10) -> str:
         assert self.proc and self.proc.stdout
-        line = self.proc.stdout.readline()
+        try:
+            line = self._output.get(timeout=max(0, timeout))
+        except queue.Empty:
+            self.proc.kill()
+            self.proc.wait(timeout=2)
+            raise TimeoutError('引擎响应超时，下帧将自动重启') from None
         if not line:
             reason = next((l for l in reversed(self.tail) if 'CRITICAL' in l or 'error' in l.lower()), '')
             raise RuntimeError('引擎进程已退出' + (f'：{reason}' if reason else ''))
@@ -56,10 +72,11 @@ class Engine:
         self.tail.append(line)
         return line
 
-    def _wait_for(self, token: str) -> list[str]:
+    def _wait_for(self, token: str, timeout: float = 10) -> list[str]:
         lines = []
+        deadline = time.monotonic() + timeout
         while True:
-            line = self._readline()
+            line = self._readline(deadline - time.monotonic())
             lines.append(line)
             if line.startswith(token):
                 return lines
@@ -75,7 +92,7 @@ class Engine:
             self._send(f'go movetime {movetime_ms or self.movetime_ms}')
             score_cp = mate = None
             depth, pv = 0, []
-            for line in self._wait_for('bestmove'):
+            for line in self._wait_for('bestmove', (movetime_ms or self.movetime_ms) / 1000 + 10):
                 parts = line.split()
                 if parts[:1] == ['info'] and 'pv' in parts and 'score' in parts:
                     i = parts.index('score')

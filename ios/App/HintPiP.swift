@@ -62,6 +62,7 @@ final class HintPiP: NSObject, ObservableObject {
     private var lastBuffer: CVPixelBuffer?
     private var lastEnqueue = Date.distantPast
     private var started = false
+    private var requestInFlight = false
 
     static let size = CGSize(width: 400, height: 160)  // 2.5:1 扁条
 
@@ -95,7 +96,7 @@ final class HintPiP: NSObject, ObservableObject {
             pip = p
         }
 
-        let t = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now(), repeating: 0.5)
         t.setEventHandler { [weak self] in self?.tick() }
         t.resume()
@@ -108,22 +109,33 @@ final class HintPiP: NSObject, ObservableObject {
     }
 
     private func tick() {
+        // 本地视频时钟不依赖网络完成，断网时也持续显示状态，而非系统加载圈。
+        pipPossible = pip?.isPictureInPicturePossible ?? false
+        if let pb = lastBuffer { enqueue(pb) }
+        guard !requestInFlight else { return }
+        requestInFlight = true
         var req = URLRequest(url: hintURL)
         req.timeoutInterval = 2
-        URLSession.shared.dataTask(with: req) { [weak self] data, _, error in
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
             guard let self else { return }
             DispatchQueue.main.async {
+                self.requestInFlight = false
                 self.pipPossible = self.pip?.isPictureInPicturePossible ?? false
-                if let data, error == nil, let h = try? JSONDecoder().decode(HintData.self, from: data) {
+                if let data, error == nil, (response as? HTTPURLResponse)?.statusCode == 200,
+                   let h = try? JSONDecoder().decode(HintData.self, from: data) {
+                    let recovered = self.connection != "已连接"
                     self.connection = "已连接"
                     let stale = (h.frameAgeS ?? 99) > 5
                     let changed = h.seq != self.hint.seq || stale != ((self.hint.frameAgeS ?? 99) > 5)
                     self.hint = h
-                    if changed { self.render(h) }
+                    if changed || recovered { self.render(h) }
                 } else {
                     let wasOK = self.connection == "已连接"
                     self.connection = "连不上服务器"
-                    if wasOK { var h = self.hint; h.status = "offline"; self.render(h) }
+                    if wasOK || self.hint.status != "offline" {
+                        self.hint.status = "offline"
+                        self.render(self.hint)
+                    }
                 }
                 // 画中画里的"视频"至少每秒要有新帧，否则会显示加载中
                 if Date().timeIntervalSince(self.lastEnqueue) > 1, let pb = self.lastBuffer {
@@ -145,7 +157,7 @@ final class HintPiP: NSObject, ObservableObject {
         var fmt: CMVideoFormatDescription?
         CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: pb, formatDescriptionOut: &fmt)
         guard let fmt else { return }
-        var timing = CMSampleTimingInfo(duration: .invalid,
+        var timing = CMSampleTimingInfo(duration: CMTime(seconds: 0.5, preferredTimescale: 600),
                                         presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
                                         decodeTimeStamp: .invalid)
         var sb: CMSampleBuffer?
@@ -167,7 +179,7 @@ final class HintPiP: NSObject, ObservableObject {
 extension HintPiP: AVPictureInPictureSampleBufferPlaybackDelegate {
     func pictureInPictureController(_ c: AVPictureInPictureController, setPlaying playing: Bool) {}
     func pictureInPictureControllerTimeRangeForPlayback(_ c: AVPictureInPictureController) -> CMTimeRange {
-        CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)  // 直播：没有进度条
+        CMTimeRange(start: .zero, duration: .positiveInfinity)  // 直播：没有进度条
     }
     func pictureInPictureControllerIsPlaybackPaused(_ c: AVPictureInPictureController) -> Bool { false }
     func pictureInPictureController(_ c: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) {}
