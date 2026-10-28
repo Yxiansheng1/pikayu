@@ -31,6 +31,10 @@ class FreshnessTests(unittest.TestCase):
         data = io.BytesIO()
         Image.new('RGB', (20, 20)).save(data, 'JPEG')
         self.data = data.getvalue()
+        # 另一帧必须有不同字节：同一份 JPEG 必然识别出同一个局面
+        other = io.BytesIO()
+        Image.new('RGB', (20, 20), (200, 30, 30)).save(other, 'JPEG')
+        self.data2 = other.getvalue()
 
     def process(self):
         self.p._process(self.data, time.time())
@@ -54,9 +58,11 @@ class FreshnessTests(unittest.TestCase):
         board = start_board()
         moved = [row[:] for row in board]
         moved[6][0], moved[5][0] = ' ', 'P'
-        self.p.rec.recognize.side_effect = [result(board), result(board), result(moved)]
+        # 第 1 次识别给首帧，第 2 次给搜索期间到达的新帧（不同字节）。
+        # 中间那一帧走逐字节缓存，不会再触发一次推理。
+        self.p.rec.recognize.side_effect = [result(board), result(moved)]
         def analyze(_):
-            self.p.submit(self.data)
+            self.p.submit(self.data2)
             return Analysis('h2e2', 10, None, 15, ['h2e2'])
         self.p.eng.analyze.side_effect = analyze
         self.process(); self.process()
@@ -69,6 +75,15 @@ class FreshnessTests(unittest.TestCase):
         self.process(); self.process()
         self.assertEqual(self.p.snapshot()['status'], 'your_turn')
         self.assertTrue(self.p.snapshot()['arrow'])
+
+    def test_recognition_cached_per_frame_bytes(self):
+        """同一帧字节只推理一次；换帧必须重新推理。"""
+        self.p.rec.recognize.return_value = result(start_board())
+        self.p._recognize(self.data)
+        self.p._recognize(self.data)
+        self.assertEqual(self.p.rec.recognize.call_count, 1)
+        self.p._recognize(self.data2)
+        self.assertEqual(self.p.rec.recognize.call_count, 2)
 
     def test_reset_during_search_discards_result(self):
         self.p.rec.recognize.return_value = result(start_board())

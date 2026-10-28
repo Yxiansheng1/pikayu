@@ -57,6 +57,10 @@ class HintPipeline:
         self.recog_ms = 0
         self._last_bad = ''
         self._generation = 0
+        # 同一帧的识别结果只算一次：搜索结果出来后的新鲜度复核，和主循环对同一帧的
+        # 处理，会命中同一份缓存，省掉一次完整的 YOLO 推理（实测 100~235ms）。
+        self._rec_key: bytes | None = None
+        self._rec_val = None
         threading.Thread(target=self._loop, daemon=True).start()
 
     # ---------- 对外 ----------
@@ -95,13 +99,24 @@ class HintPipeline:
                     self._stable_key = ''
                     self._set(status='error', text='处理失败，正在重试', move='', score='', pv=[], arrow=[])
 
+    def _recognize(self, data: bytes):
+        """按帧字节缓存识别结果（只保留最近一帧）。
+
+        同一份 JPEG 字节必然是同一张图，识别结果必然相同，所以这个缓存不会
+        让判断变宽松。它省掉的是"算完搜索再复核最新帧"那次重复推理。
+        """
+        if data == self._rec_key:
+            return self._rec_val
+        t0 = time.time()
+        r = self.rec.recognize(Image.open(io.BytesIO(data)))
+        self.recog_ms = int((time.time() - t0) * 1000)
+        self._rec_key, self._rec_val = data, r
+        return r
+
     def _process(self, data: bytes, frame_ts: float):
         with self._lock:
             generation = self._generation
-        t0 = time.time()
-        img = Image.open(io.BytesIO(data))
-        r = self.rec.recognize(img)
-        self.recog_ms = int((time.time() - t0) * 1000)
+        r = self._recognize(data)
         self.frames_processed += 1
 
         if not r.ok:
@@ -174,7 +189,7 @@ class HintPipeline:
                 return
             latest = self._frame
         if latest:
-            current = self.rec.recognize(Image.open(io.BytesIO(latest)))
+            current = self._recognize(latest)
             if not current.ok or current.fen_board != key or current.flipped != r.flipped:
                 with self._lock:
                     if generation != self._generation:
