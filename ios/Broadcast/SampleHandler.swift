@@ -2,15 +2,15 @@ import CoreImage
 import ReplayKit
 import UIKit
 
-/// 屏幕广播扩展：每秒抽一帧 -> 缩放到 960 宽 -> JPEG -> POST 到家里电脑 /frame。
+/// 屏幕广播扩展：每秒抽 3 帧 -> 缩放到 960 宽 -> JPEG -> POST 到电脑 /frame。
 /// 系统给广播扩展的内存上限约 50MB，超了会被静默杀掉，所以：
-///   - 上一帧没传完就丢帧，绝不排队积压
+///   - 上一帧没传完就丢帧，绝不排队积压（实测 1fps 时丢弃 0、内存 32.8/50MB）
 ///   - CIContext 只建一次，每帧在 autoreleasepool 里处理
 ///   - 每帧带上当前内存占用（X-Mem-MB），服务端监控页直接看曲线
 class SampleHandler: RPBroadcastSampleHandler {
 
-    private let interval: CFTimeInterval = 1.0      // 抽帧间隔（秒）
-    private let targetWidth: CGFloat = 960          // 保留皮肤棋子笔画；仍每秒一帧，不积压
+    private let interval: CFTimeInterval = 1.0 / 3   // 抽帧间隔（秒）：3fps，多出的帧由服务端"稳定"判定吸收
+    private let targetWidth: CGFloat = 960          // 保留皮肤棋子笔画
     private let jpegQuality: CGFloat = 0.8
 
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
