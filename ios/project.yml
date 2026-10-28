@@ -29,7 +29,7 @@ targets:
         UIBackgroundModes: [audio]   # 画中画需要：后台保持"媒体播放"状态
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-        PikayuServerURL: http://100.108.35.123:8765
+        PikayuServerURL: http://100.85.102.82:8765
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yxiansheng1.pikayu
@@ -47,7 +47,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-        PikayuServerURL: http://100.108.35.123:8765
+        PikayuServerURL: http://100.85.102.82:8765
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler

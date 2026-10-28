@@ -24,7 +24,7 @@ class SampleHandler: RPBroadcastSampleHandler {
     }()
     private lazy var frameURL: URL = {
         let s = Bundle.main.object(forInfoDictionaryKey: "PikayuServerURL") as? String
-            ?? "http://100.108.35.123:8765"
+            ?? "http://100.85.102.82:8765"
         return URL(string: s)!.appendingPathComponent("frame")
     }()
 

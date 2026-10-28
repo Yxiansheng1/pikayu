@@ -14,6 +14,8 @@ server/.venv/
 server/__pycache__/
 server/debug/
 server/requests.log
+server/server.out.log
+server/server.err.log
 server/diag.txt
 server/diag.bat
 server/diag_run.py
