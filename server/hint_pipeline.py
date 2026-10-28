@@ -56,6 +56,7 @@ class HintPipeline:
         self.frames_processed = 0
         self.recog_ms = 0
         self._last_bad = ''
+        self._generation = 0
         threading.Thread(target=self._loop, daemon=True).start()
 
     # ---------- 对外 ----------
@@ -66,9 +67,11 @@ class HintPipeline:
 
     def reset(self):
         with self._lock:
+            self._generation += 1
+            self._frame = None
             self._candidate, self._candidate_count = None, 0
             self._stable, self._stable_key = None, ''
-            self._set(status='waiting', text='等待画面…', move='', score='', pv=[], board=[], arrow=[])
+            self._set(status='waiting', text='等待画面…', move='', score='', pv=[], board=[], arrow=[], side_to_move='')
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -93,6 +96,8 @@ class HintPipeline:
                     self._set(status='error', text='处理失败，正在重试', move='', score='', pv=[], arrow=[])
 
     def _process(self, data: bytes, frame_ts: float):
+        with self._lock:
+            generation = self._generation
         t0 = time.time()
         img = Image.open(io.BytesIO(data))
         r = self.rec.recognize(img)
@@ -100,7 +105,7 @@ class HintPipeline:
         self.frames_processed += 1
 
         if not r.ok:
-            # 识别失败（不是棋盘 / 动画中 / 弹窗遮挡）：清空候选，保留上一个提示不动
+            # 不显示上一局面的走法。
             self._candidate, self._candidate_count = None, 0
             with self._lock:
                 self._stable_key = ''
@@ -112,6 +117,10 @@ class HintPipeline:
             self._candidate_count += 1
         else:
             self._candidate, self._candidate_count = key, 1
+            with self._lock:
+                if generation != self._generation:
+                    return
+                self._set(status='waiting', text='棋盘变化，正在核对…', move='', score='', pv=[], arrow=[])
         if self._candidate_count < STABLE_FRAMES or key == self._stable_key:
             return
 
@@ -119,6 +128,17 @@ class HintPipeline:
         user_side = 'black' if r.flipped else 'red'
         prev = self._stable
         guess = self._infer_side_to_move(prev, r.board, key, user_side)
+        if prev == r.board and self.hint.side_to_move in ('red', 'black'):
+            guess = self.hint.side_to_move
+        if guess is None:
+            with self._lock:
+                if generation != self._generation:
+                    return
+                self._stable, self._stable_key = r.board, key
+                self._set(status='waiting', text='行棋方未确定，请从开局开始采集或等待一步走子',
+                          move='', score='', pv=[], arrow=[], side_to_move='',
+                          board=_to_view(r.board, r.flipped), user_side=user_side)
+            return
         # 用规则校验兜底：不合法的局面不送引擎（Pikafish 会直接退出）；与"将军"矛盾时纠正行棋方
         side_to_move, why = resolve_side(r.board, guess)
         if side_to_move is None:
@@ -146,9 +166,25 @@ class HintPipeline:
                       user_side=user_side, side_to_move=side_to_move, board=view_board)
 
         fen = f"{key} {'w' if side_to_move == 'red' else 'b'} - - 0 1"
+        self.log(f'  search: fen={fen} flipped={r.flipped} movetime_ms={self.eng.movetime_ms}')
         a = self.eng.analyze(fen)
-        if key != self._stable_key:  # 算的过程中局面已经变了，丢弃
-            return
+        # 同一线程计算时 _stable_key 不会随新上传帧变化，必须主动核对最新画面。
+        with self._lock:
+            if generation != self._generation:
+                return
+            latest = self._frame
+        if latest:
+            current = self.rec.recognize(Image.open(io.BytesIO(latest)))
+            if not current.ok or current.fen_board != key or current.flipped != r.flipped:
+                with self._lock:
+                    if generation != self._generation:
+                        return
+                    self._stable_key = ''
+                    self._set(status='waiting', text='画面已变化，旧计算结果已丢弃', move='', score='', pv=[], arrow=[])
+                return
+        with self._lock:
+            if generation != self._generation or key != self._stable_key:
+                return
         if not a.bestmove:
             with self._lock:
                 self._set(status='your_turn', text='无棋可走', move='', arrow=[])
@@ -162,9 +198,11 @@ class HintPipeline:
         pv = pv_to_chinese(key, side_to_move == 'red', a.pv)
         arrow = _uci_to_view_arrow(a.bestmove, r.flipped)
         with self._lock:
+            if generation != self._generation:
+                return
             self._set(status='your_turn', text=f'{move}（{score}）', move=move, score=score, pv=pv,
                       arrow=arrow, latency_ms=int((time.time() - frame_ts) * 1000))
-        self.log(f'  hint: {move}（{score}） 耗时 {int((time.time() - frame_ts) * 1000)}ms')
+        self.log(f'  hint: {move}（{score}） depth={a.depth} uci={a.bestmove} fen={fen} 耗时 {int((time.time() - frame_ts) * 1000)}ms')
 
     def _save_bad_frame(self, data: bytes, why: str):
         import os
@@ -179,21 +217,27 @@ class HintPipeline:
             pass
 
     @staticmethod
-    def _infer_side_to_move(prev, cur, key, user_side) -> str:
+    def _infer_side_to_move(prev, cur, key, user_side) -> str | None:
         if key == START_BOARD:
             return 'red'
         if prev is None:
-            return user_side  # 第一次看到局面：默认用户在思考
-        movers = set()
+            return None
+        changes = []
         for i in range(10):
             for j in range(9):
                 a, b = prev[i][j], cur[i][j]
-                if b != ' ' and a != b:          # 这个格子出现了新的棋子 = 落点
-                    movers.add('red' if b.isupper() else 'black')
-        if len(movers) == 1:
-            mover = movers.pop()
-            return 'black' if mover == 'red' else 'red'
-        return user_side  # 变化太多（漏帧 / 悔棋 / 新开局）：默认轮到用户
+                if a != b:
+                    changes.append((a, b))
+        # 必须恰好一个起点和一个落点，且为同一棋子；不从单格认错或漏帧猜回合。
+        if len(changes) != 2:
+            return None
+        sources = [a for a, b in changes if a != ' ' and b == ' ']
+        targets = [(a, b) for a, b in changes if b != ' ']
+        if len(sources) == 1 and len(targets) == 1:
+            captured, moved = targets[0]
+            if moved == sources[0] and (captured == ' ' or captured.isupper() != moved.isupper()):
+                return 'black' if moved.isupper() else 'red'
+        return None
 
     def _set(self, **kw):
         for k, v in kw.items():

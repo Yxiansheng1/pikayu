@@ -144,6 +144,8 @@ async def frame_event(request: Request):
         events = frames.events
         frames.__init__()
         frames.events = events
+    elif ev == 'finish':
+        pipeline.reset()
     return {'ok': True}
 
 

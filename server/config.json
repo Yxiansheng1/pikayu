@@ -1,9 +1,9 @@
 {
-  "engine_path": "D:\\pikayu\\Pikafish.2026-09-06\\Pikafish-Windows-x86-64-universal.exe",
+  "engine_path": "D:\\pikayu\\pikayu\\Pikafish.2026-09-06\\Pikafish-Windows-x86-64-universal.exe",
   "model_path": "yolov11.onnx",
-  "threads": 4,
+  "threads": 8,
   "hash_mb": 256,
-  "movetime_ms": 1500,
+  "movetime_ms": 800,
   "recognizer_threads": 2,
   "host": "0.0.0.0",
   "port": 8765,
